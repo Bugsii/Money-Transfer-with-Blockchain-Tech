@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money Transfer</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.3.6/dist/web3.min.js"></script>
+</head>
+<body>
+  <div class="custom-alert" id="customAlert"></div>
+  <div class="background-overlay"></div>
+
+  <div id="app" class="container">
+    <h1>Money Transfer with Blockchain</h1>
+    <button onclick="connectWallet()">Connect Wallet</button>
+    <div class="section">
+      <h2>Create Hash</h2>
+      <label>Name: <input type="text" id="createName"></label>
+      <label>Wallet Address: <input type="text" id="address"></label>
+      <label>Initial Balance: <input type="number" id="initialBalance"></label>
+      <button onclick="createHash()">Create Hash</button>
+    </div>
+
+    <div class="section">
+      <h2>Transfer Money</h2>
+      <label>From Hash: <input type="text" id="transferFromHash"></label>
+      <label>To Hash: <input type="text" id="transferToHash"></label>
+      <label>Amount: <input type="number" id="transferAmount"></label>
+      <button onclick="transferMoney()">Transfer</button>
+    </div>
+
+    <div class="section">
+      <h2>Check Balance</h2>
+      <label>Hash: <input type="text" id="checkBalanceHash"></label>
+      <button onclick="checkBalance()">Check Balance</button>
+      <p id="balanceResult"></p>
+    </div>
+  </div>
+  </div>
+<script>
+let web3;
+let contract;
+let fromHashes = [];
+let toHashes = [];
+let fromBalances = [];
+let toBalances = [];
+  async function connectWallet() {
+    if (window.ethereum) {
+      web3 = new Web3(ethereum);
+      try {
+        await ethereum.request({ method: 'eth_requestAccounts' });
+        //const sepoliaETH_RPC_URL = 'https://sepolia.infura.io/v3/16bb0ccc7b4d4c67aeb6831cf86782d2';
+        //web3 = new Web3(new Web3.providers.HttpProvider(sepoliaETH_RPC_URL));
+        //const networkId = await web3.eth.net.getId();
+        const contractAddress = '0x33C6FeAba7f3e8ED5680Ec22c501c6D07ACc717e';
+        const contractABI = [
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "bytes32",
+				"name": "hash",
+				"type": "bytes32"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "name",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "account",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "balance",
+				"type": "uint256"
+			}
+		],
+		"name": "HashCreated",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "_hash",
+				"type": "bytes32"
+			}
+		],
+		"name": "checkBalance",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_name",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "_address",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_initialBalance",
+				"type": "uint256"
+			}
+		],
+		"name": "createHash",
+		"outputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"name": "hashToAddress",
+		"outputs": [
+			{
+				"internalType": "string",
+				"name": "name",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "account",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "balance",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "_fromHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "_toHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_amount",
+				"type": "uint256"
+			}
+		],
+		"name": "transferMoney",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	}
+];
+        contract = new web3.eth.Contract(contractABI, contractAddress);
+      } catch (error) {
+        console.error('Access denied:', error);
+      }
+    } else {
+      console.error('MetaMask not detected');
+    }
+  }
+
+let initialBalance;
+async function createHash() {
+  const name = document.getElementById('createName').value;
+  const address = document.getElementById('address').value;
+  initialBalance = parseFloat(document.getElementById('initialBalance').value);
+
+  try {
+    const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+    const senderAddress = accounts[0];
+
+    if (!contract) {
+      console.error('Contract not initialized. Make sure to connect your wallet.');
+      return;
+    }
+
+    const salt = generateSalt();
+
+    const dataToHash = name + address + salt;
+    const hashedData = web3.utils.keccak256(dataToHash);
+
+    const gas = await contract.methods.createHash(hashedData, address, initialBalance).estimateGas({ from: senderAddress });
+    const gasPrice = await web3.eth.getGasPrice();
+    
+    const result = await contract.methods.createHash(hashedData, address, initialBalance).send({
+      from: senderAddress,
+      gas: gas,
+      gasPrice: gasPrice,
+    });
+
+    if (result.events && result.events.HashCreated && result.events.HashCreated.returnValues) {
+      const newHash = result.events.HashCreated.returnValues.hash;
+      fromHashes.push({ hash: newHash, initialBalance: initialBalance });
+      toHashes.push({ hash: newHash, initialBalance: initialBalance });
+      fromBalances.push(initialBalance);
+      toBalances.push(initialBalance);
+      showAlert(`Hash created successfully!\nHash: ${newHash}\nInitial Balance: ${initialBalance} ETH`);
+      fromHash = newHash; 
+    } else {
+      console.error('Transaction result or return values are missing.');
+      showAlert('Error creating hash. Transaction result or return values are missing.', true);
+    }
+
+  } catch (error) {
+    console.error('Error creating hash:', error);
+    showAlert('Error creating hash. Check the console for details.', true);
+  }
+}
+
+
+function generateSalt() {
+  const length = 10;
+  const characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let salt = '';
+  for (let i = 0; i < length; i++) {
+    salt += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return salt;
+}
+
+let fromBalanceAfterTransfer; 
+
+async function transferMoney() {
+  const fromHash = document.getElementById('transferFromHash').value;
+  const toHash = document.getElementById('transferToHash').value;
+  const amount = parseFloat(document.getElementById('transferAmount').value);
+
+  try {
+    if (!contract || !fromHashes.length || !toHashes.length) {
+      console.error('Contract not initialized or hashes not created. Make sure to create a hash first.');
+      return;
+    }
+
+    const fromIndex = fromHashes.findIndex(item => item.hash === fromHash);
+    const toIndex = toHashes.findIndex(item => item.hash === toHash);
+
+    if (fromIndex === -1 || toIndex === -1) {
+      console.error('Invalid sender or receiver hash. Make sure the hashes are valid.');
+      showAlert('Invalid sender or receiver hash. Make sure the hashes are valid.', true);
+      return;
+    }
+
+    if (amount > fromBalances[fromIndex]) {
+      showAlert('Insufficient balance for the transfer.');
+      return;
+    }
+
+    fromBalances[fromIndex] -= amount;
+
+    toBalances[toIndex] += amount;
+
+    console.log(`Transfer successful: ${amount} ETH transferred from ${fromHash} to ${toHash}`);
+    console.log(`Updated Balance for ${fromHash}: ${fromBalances[fromIndex]} ETH`);
+    console.log(`Updated Balance for ${toHash}: ${toBalances[toIndex]} ETH`);
+
+    showAlert('Transfer successful.');
+  } catch (error) {
+    console.error('Error transferring money:', error);
+    showAlert('Error transferring money. Check the console for details.', true);
+  }
+}
+
+
+async function checkBalance() {
+  const hash = document.getElementById('checkBalanceHash').value;
+
+  try {
+    if (!contract || !fromHashes.length || !toHashes.length) {
+      console.error('Contract not initialized or hashes not created. Make sure to transfer money first.');
+      return;
+    }
+
+    const fromIndex = fromHashes.findIndex(item => item.hash === hash);
+    const toIndex = toHashes.findIndex(item => item.hash === hash);
+
+    if (fromIndex !== -1) {
+      console.log(`Balance for ${hash}: ${fromBalances[fromIndex]} ETH`);
+      document.getElementById('balanceResult').innerText = `Balance: ${fromBalances[fromIndex]} ETH`;
+    } 
+    else if (toIndex !== -1) {
+      console.log(`Balance for ${hash}: ${toBalances[toIndex]} ETH`);
+      document.getElementById('balanceResult').innerText = `Balance: ${toBalances[toIndex]} ETH`;
+    } else {
+      console.error('Hash not found. Make sure the hash is valid.');
+      document.getElementById('balanceResult').innerText = 'Error: Hash not found.';
+    }
+
+  } catch (error) {
+    console.error('Error checking balance:', error);
+    document.getElementById('balanceResult').innerText = 'Error checking balance. Check the console for details.';
+  }
+}
+
+function showAlert(message, isError = false) {
+  const alertElement = document.getElementById('customAlert');
+  alertElement.innerText = message;
+
+  if (isError) {
+    alertElement.classList.add('error');
+  } else {
+    alertElement.classList.remove('error');
+  }
+
+  alertElement.style.display = 'block';
+
+  setTimeout(() => {
+    alertElement.style.display = 'none';
+  }, 20000);
+}
+
+</script>
+</body>
+</html>
